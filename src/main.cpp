@@ -32,15 +32,17 @@ String hostname = HOSTNAME;
 // Globals
 Adafruit_BME280 bme;
 AsyncWebServer server(80);
-WiFiManager wm; // global wm instance
 unsigned long lastConnectionTry;
 uint64_t uptime = 0;
+// WiFi
+WiFiManager wm;
+WiFiManagerParameter custom_hostname("hostname", "Hostname", "", 40);
 // Track how often we have tried to reconnect.
 int retry_count = 0;
 #define MAX_RETRY_COUNT 3
 #define CONNECTION_RETRY_INTERVAL 30000
 #define WDT_TIMEOUT 10
-
+// Sensor values
 float temperature = 0.0;
 float humidity = 0.0;
 float pressure = 0.0;
@@ -117,6 +119,25 @@ void clearPreferences() {
 }
 
 /**
+ * Called when the config portal saves config.
+ */
+void saveParamsCallback () {
+  Serial.println("Get Params:");
+  Serial.print(custom_hostname.getID());
+  Serial.print(" : ");
+  Serial.println(custom_hostname.getValue());
+
+  // Get the custom hostname from wifiManager.
+  char hostname_param[40];
+  strcpy(hostname_param, custom_hostname.getValue());
+  // We set the default to be empty, so if it is not, set it and store it.
+  if((hostname_param != NULL) && (hostname_param[0] != '\0')) {
+    hostname = String(hostname_param);
+    savePreferences();
+  }
+}
+
+/**
  * Called on boot.
 */
 void setup() {
@@ -140,7 +161,7 @@ void setup() {
   // WiFi
   // Local initialization. Once its business is done, there is no need to keep
   // it around.
-  WiFiManager wm;
+
   if(digitalRead(BUTTON_PIN) == HIGH) {
     Serial.println("Resetting wifi settings.");
     wm.resetSettings();
@@ -158,24 +179,12 @@ void setup() {
   // if it does not connect it starts an access point with the specified name
   // here  "AutoConnectAP"
   // and goes into a blocking loop awaiting configuration
-  WiFiManagerParameter custom_hostname("hostname", "Hostname", "", 40);
+  
   wm.addParameter(&custom_hostname);
+  wm.setConfigPortalBlocking(false);
+  wm.setSaveParamsCallback(saveParamsCallback);
   if(!wm.autoConnect(HOSTNAME)) {
-    Serial.println("failed to connect and hit timeout");
-    delay(3000);
-    //reset and try again, or maybe put it to deep sleep
-    ESP.restart();
-    delay(5000);
-  }
-  // Get the custom hostname from wifiManager.
-  char hostname_param[40];
-  strcpy(hostname_param, custom_hostname.getValue());
-  // We set the default to be empty, so if it is not, set it and store it.
-  if((hostname_param != NULL) && (hostname_param[0] != '\0')) {
-    hostname = String(hostname_param);
-    savePreferences();
-    delay(3000);
-    ESP.restart();
+    Serial.println("Failed to connect to wifi. Starting config portal.");
   }
 
   lastConnectionTry = millis();
@@ -205,17 +214,13 @@ void setup() {
       Serial.print("        ID of 0x61 represents a BME 680.\n");
       while (1) delay(10);
   }
-  
-  Serial.println("-- Default Test --");
-
-  Serial.println();
 
   // Set up our endpoint.
   // Respond with a json object containing measurements.
   server.on("/", HTTP_GET, [](AsyncWebServerRequest* request) { 
     AsyncResponseStream *response = request->beginResponseStream("application/json");
     response->print("{");
-    response->print("\"i\":\"" + hostname + "\"");
+    response->print("\"i\":\"" + hostname + "\",");
     response->printf("\"t\":%.2f,", temperature);
     response->printf("\"p\":%.2f,", pressure);
     response->printf("\"rh\":%.2f", humidity);
@@ -223,6 +228,9 @@ void setup() {
     response->print("}");
     request->send(response);
   }); 
+  server.onNotFound([](AsyncWebServerRequest *request){
+    request->send(404, "text/plain", "The princess is in another castle. Go away.");
+  });
   server.begin();
 
   // And we're done.
@@ -256,7 +264,15 @@ void printValues() {
 */
 void loop() {
   unsigned long currentMillis = millis();
+
+  // If we're runnign the WifiManager config portal, process it here.
+  wm.process();
+
   if(WiFi.status() == WL_CONNECTED) {
+    // Reset last connection time if current millis overflows (every ~49 days)
+    if(currentMillis < lastConnectionTry) {
+      lastConnectionTry = currentMillis - 1;
+    }
     uptime = (currentMillis - lastConnectionTry) / 1000;
     // Temp in °C
     temperature = bme.readTemperature();
@@ -277,7 +293,6 @@ void loop() {
       ESP.restart();
     }
     else {
-      Serial.println("Resetting WDT with valid sensor values...");
       esp_task_wdt_reset();
     }
   }
@@ -294,10 +309,15 @@ void loop() {
       ESP.restart();
     }
     else {
-      Serial.println("Resetting WDT whislt reconnecting...");
       esp_task_wdt_reset();
     }
   }
   
-  delay(5000);
+  if(wm.getConfigPortalActive()) {
+    esp_task_wdt_reset();
+  }
+  else {
+    // Only delay our sensor reads if we're not running captive portal.
+    delay(5000);
+  }
 }
