@@ -183,16 +183,14 @@ void saveParamsCallback () {
 
   // Get the custom hostname from wifiManager.
   char hostname_param[40];
-  // prevent sneaky overflows.
-  if(custom_hostname.getValueLength() > 39) {
-    Serial.println("Ignoring custom hostname > 40 characters.");
-    return;
-  }
   strcpy(hostname_param, custom_hostname.getValue());
   // We set the default to be empty, so if it is not, set it and store it.
   if((hostname_param != NULL) && (hostname_param[0] != '\0')) {
     hostname = String(hostname_param);
     savePreferences();
+    // Then restart to properly init.
+    delay(250);
+    ESP.restart();
   }
 }
 
