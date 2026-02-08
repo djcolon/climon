@@ -84,6 +84,57 @@ void setupMdns() {
 }
 
 /**
+ * Sets up the temp sensor.
+ */
+void setupSensor() {
+  // BME280
+  Wire.begin(BME_SDA, BME_SCL);
+  unsigned status;
+  
+  // Init temp sensor.
+  status = bme.begin(0x76, &Wire);
+  if (!status) {
+      Serial.println("Could not find a valid BME280 sensor, check wiring, address, sensor ID!");
+      Serial.print("SensorID was: 0x"); Serial.println(bme.sensorID(),16);
+      Serial.print("        ID of 0xFF probably means a bad address, a BMP 180 or BMP 085\n");
+      Serial.print("   ID of 0x56-0x58 represents a BMP 280,\n");
+      Serial.print("        ID of 0x60 represents a BME 280.\n");
+      Serial.print("        ID of 0x61 represents a BME 680.\n");
+      while (1) delay(10);
+  }
+  // Sample infrequently to prevent self-heating causing overly high readings.
+  bme.setSampling(
+    Adafruit_BME280::MODE_FORCED,
+    Adafruit_BME280::SAMPLING_X1,
+    Adafruit_BME280::SAMPLING_X1,
+    Adafruit_BME280::SAMPLING_X1,
+    Adafruit_BME280::FILTER_OFF
+  );
+}
+
+/**
+ * Set up our webserver.
+ */
+void setupServer() {
+  // Respond with a json object containing measurements.
+  server.on("/", HTTP_GET, [](AsyncWebServerRequest* request) { 
+    AsyncResponseStream *response = request->beginResponseStream("application/json");
+    response->print("{");
+    response->print("\"h\":\"" + hostname + "\",");
+    response->printf("\"t\":%.2f,", temperature);
+    response->printf("\"p\":%.2f,", pressure);
+    response->printf("\"rh\":%.2f,", humidity);
+    response->printf("\"u\":%d", uptime);
+    response->print("}");
+    request->send(response);
+  }); 
+  server.onNotFound([](AsyncWebServerRequest *request){
+    request->send(404, "text/plain", "The princess is in another castle. Go away.");
+  });
+  server.begin();
+}
+
+/**
  * Tries to get hostname from preferences.
  * Returns default if not found.
  */
@@ -120,6 +171,9 @@ void clearPreferences() {
 
 /**
  * Called when the config portal saves config.
+ *
+ * Prints configured params.
+ * Validates them and stores them.
  */
 void saveParamsCallback () {
   Serial.println("Get Params:");
@@ -129,6 +183,11 @@ void saveParamsCallback () {
 
   // Get the custom hostname from wifiManager.
   char hostname_param[40];
+  // prevent sneaky overflows.
+  if(custom_hostname.getValueLength() > 39) {
+    Serial.println("Ignoring custom hostname > 40 characters.");
+    return;
+  }
   strcpy(hostname_param, custom_hostname.getValue());
   // We set the default to be empty, so if it is not, set it and store it.
   if((hostname_param != NULL) && (hostname_param[0] != '\0')) {
@@ -179,7 +238,6 @@ void setup() {
   // if it does not connect it starts an access point with the specified name
   // here  "AutoConnectAP"
   // and goes into a blocking loop awaiting configuration
-  
   wm.addParameter(&custom_hostname);
   wm.setConfigPortalBlocking(false);
   wm.setSaveParamsCallback(saveParamsCallback);
@@ -194,44 +252,10 @@ void setup() {
   // Print out the IP.
   Serial.print("IP address: ");
   Serial.println(WiFi.localIP());
-  // Then set up MDNS
+  // Then set up our sub-systems.
   setupMdns();
-
-  // BME280
-  Wire.begin(BME_SDA, BME_SCL);
-  unsigned status;
-    
-  // default settings
-  status = bme.begin(0x76, &Wire);  
-  // You can also pass in a Wire library object like &Wire2
-  // status = bme.begin(0x76, &Wire2)
-  if (!status) {
-      Serial.println("Could not find a valid BME280 sensor, check wiring, address, sensor ID!");
-      Serial.print("SensorID was: 0x"); Serial.println(bme.sensorID(),16);
-      Serial.print("        ID of 0xFF probably means a bad address, a BMP 180 or BMP 085\n");
-      Serial.print("   ID of 0x56-0x58 represents a BMP 280,\n");
-      Serial.print("        ID of 0x60 represents a BME 280.\n");
-      Serial.print("        ID of 0x61 represents a BME 680.\n");
-      while (1) delay(10);
-  }
-
-  // Set up our endpoint.
-  // Respond with a json object containing measurements.
-  server.on("/", HTTP_GET, [](AsyncWebServerRequest* request) { 
-    AsyncResponseStream *response = request->beginResponseStream("application/json");
-    response->print("{");
-    response->print("\"i\":\"" + hostname + "\",");
-    response->printf("\"t\":%.2f,", temperature);
-    response->printf("\"p\":%.2f,", pressure);
-    response->printf("\"rh\":%.2f", humidity);
-    response->printf("\"u\":%d", uptime);
-    response->print("}");
-    request->send(response);
-  }); 
-  server.onNotFound([](AsyncWebServerRequest *request){
-    request->send(404, "text/plain", "The princess is in another castle. Go away.");
-  });
-  server.begin();
+  setupSensor();
+  setupServer();
 
   // And we're done.
 }
@@ -256,7 +280,26 @@ void printValues() {
   Serial.print(uptime);
   Serial.println(" s");
 
+  Serial.print("IP = ");
+  Serial.println(WiFi.localIP().toString());
+
+  Serial.print("Hostname = ");
+  Serial.println(hostname);
+
   Serial.println();
+}
+
+/**
+ * Reads the sensor in forced mode, and stores values to globals.
+ */
+void readSensor() {
+  bme.takeForcedMeasurement();
+  // Temp in °C
+  temperature = bme.readTemperature();
+  // Pressure in hPa
+  pressure = bme.readPressure() / 100.0F;
+  // Humidity in %
+  humidity = bme.readHumidity();
 }
 
 /**
@@ -265,7 +308,7 @@ void printValues() {
 void loop() {
   unsigned long currentMillis = millis();
 
-  // If we're runnign the WifiManager config portal, process it here.
+  // If we're running the WifiManager config portal, process it here.
   wm.process();
 
   if(WiFi.status() == WL_CONNECTED) {
@@ -274,14 +317,10 @@ void loop() {
       lastConnectionTry = currentMillis - 1;
     }
     uptime = (currentMillis - lastConnectionTry) / 1000;
-    // Temp in °C
-    temperature = bme.readTemperature();
-    // Pressure in hPa
-    pressure = bme.readPressure() / 100.0F;
-    // Humidity in %
-    humidity = bme.readHumidity();
+
+    readSensor();
     printValues();
-    Serial.println("Hostname: '" + hostname + "'");
+
     // Do our values make sense?
     if(
       temperature < -30.0 ||
