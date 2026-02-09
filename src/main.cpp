@@ -17,6 +17,8 @@
 #include "ESPAsyncWebServer.h"
 // Preferences
 #include <Preferences.h>
+// Version
+#include "version.h"
 
 // Definitions /////////////////////////////////////////////////////////////////
 // Pins
@@ -124,7 +126,8 @@ void setupServer() {
     response->printf("\"t\":%.2f,", temperature);
     response->printf("\"p\":%.2f,", pressure);
     response->printf("\"rh\":%.2f,", humidity);
-    response->printf("\"u\":%d", uptime);
+    response->printf("\"u\":%d,", uptime);
+    response->printf("\"v\":\"%s\"", VERSION);
     response->print("}");
     request->send(response);
   }); 
@@ -189,8 +192,8 @@ void saveParamsCallback () {
     hostname = String(hostname_param);
     savePreferences();
     // Then restart to properly init.
-    delay(250);
-    ESP.restart();
+    //delay(2000);
+    //ESP.restart();
   }
 }
 
@@ -283,6 +286,9 @@ void printValues() {
 
   Serial.print("Hostname = ");
   Serial.println(hostname);
+
+  Serial.print("Version = ");
+  Serial.println(VERSION);
 
   Serial.println();
 }
