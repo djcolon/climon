@@ -1,0 +1,5 @@
+# One sensor IP or full URL per line.
+# Entries are loaded at runtime, so you can update this file
+# without recompiling the application.
+192.168.1.201
+192.168.1.202

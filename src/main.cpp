@@ -15,6 +15,7 @@
 #include <Adafruit_BME280.h>
 // Server
 #include "ESPAsyncWebServer.h"
+#include <SPIFFS.h>
 // Preferences
 #include <Preferences.h>
 // Version
@@ -130,10 +131,29 @@ void setupSensor()
  */
 void setupServer()
 {
+  // Initialize SPIFFS
+  bool spiffs_ready = false;
+  if (SPIFFS.begin(true))
+  {
+    Serial.println("SPIFFS initialized successfully");
+    spiffs_ready = true;
+  }
+  else
+  {
+    Serial.println("SPIFFS Mount Failed - /dash endpoint will not be available");
+  }
+
   // Set global CORS headers
   DefaultHeaders::Instance().addHeader("Access-Control-Allow-Origin", "*");
   DefaultHeaders::Instance().addHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
   DefaultHeaders::Instance().addHeader("Access-Control-Allow-Headers", "*");
+
+  // Serve static files from /dash endpoint only if SPIFFS is ready
+  if (spiffs_ready)
+  {
+    server.serveStatic("/dash", SPIFFS, "/dash/").setDefaultFile("index.html");
+  }
+
   // Respond with a json object containing measurements.
   server.on(
       "/",
