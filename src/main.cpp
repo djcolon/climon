@@ -130,21 +130,43 @@ void setupSensor()
  */
 void setupServer()
 {
+  // Manage CORS
+  // Source - https://stackoverflow.com/a/74116471
+  // Posted by Christoph Ketzler
+  // Retrieved 2026-06-22, License - CC BY-SA 4.0
+  DefaultHeaders::Instance().addHeader("Access-Control-Allow-Origin", "*");
+  DefaultHeaders::Instance().addHeader("Access-Control-Allow-Methods", "GET, POST, PUT");
+  DefaultHeaders::Instance().addHeader("Access-Control-Allow-Headers", "Content-Type");
+
   // Respond with a json object containing measurements.
-  server.on("/", HTTP_GET, [](AsyncWebServerRequest *request)
-            { 
-    AsyncResponseStream *response = request->beginResponseStream("application/json");
-    response->print("{");
-    response->print("\"h\":\"" + hostname + "\",");
-    response->printf("\"t\":%.2f,", temperature);
-    response->printf("\"p\":%.2f,", pressure);
-    response->printf("\"rh\":%.2f,", humidity);
-    response->printf("\"u\":%d,", uptime);
-    response->printf("\"v\":\"%s\"", VERSION);
-    response->print("}");
-    request->send(response); });
-  server.onNotFound([](AsyncWebServerRequest *request)
-                    { request->send(404, "text/plain", "The princess is in another castle. Go away."); });
+  server.on(
+      "/",
+      HTTP_GET,
+      [](AsyncWebServerRequest *request)
+      {
+        AsyncResponseStream *response = request->beginResponseStream("application/json");
+        response->print("{");
+        response->print("\"h\":\"" + hostname + "\",");
+        response->printf("\"t\":%.2f,", temperature);
+        response->printf("\"p\":%.2f,", pressure);
+        response->printf("\"rh\":%.2f,", humidity);
+        response->printf("\"u\":%d,", uptime);
+        response->printf("\"v\":\"%s\"", VERSION);
+        response->print("}");
+        request->send(response);
+      });
+  server.onNotFound(
+      [](AsyncWebServerRequest *request)
+      {
+        if (request->method() == HTTP_OPTIONS)
+        {
+          request->send(200);
+        }
+        else
+        {
+          request->send(404, "text/plain", "The princess is in another castle. Go away.");
+        }
+      });
   server.begin();
 }
 
