@@ -130,14 +130,10 @@ void setupSensor()
  */
 void setupServer()
 {
-  // Manage CORS
-  // Source - https://stackoverflow.com/a/74116471
-  // Posted by Christoph Ketzler
-  // Retrieved 2026-06-22, License - CC BY-SA 4.0
+  // Set global CORS headers
   DefaultHeaders::Instance().addHeader("Access-Control-Allow-Origin", "*");
-  DefaultHeaders::Instance().addHeader("Access-Control-Allow-Methods", "GET, POST, PUT");
-  DefaultHeaders::Instance().addHeader("Access-Control-Allow-Headers", "Content-Type");
-
+  DefaultHeaders::Instance().addHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+  DefaultHeaders::Instance().addHeader("Access-Control-Allow-Headers", "*");
   // Respond with a json object containing measurements.
   server.on(
       "/",
@@ -158,9 +154,9 @@ void setupServer()
   server.onNotFound(
       [](AsyncWebServerRequest *request)
       {
-        if (request->method() == HTTP_OPTIONS)
+        if (request->method() == AsyncWebRequestMethod::HTTP_OPTIONS)
         {
-          request->send(200);
+          request->send(200, "text/plain", "OK");
         }
         else
         {
